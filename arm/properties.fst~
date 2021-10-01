@@ -1,0 +1,365 @@
+module Properties
+
+open Arm_def
+open Arm_semantics
+open Valid
+open Shift
+
+(* property0: NOP has no effect on machine state (exception for the increasing 1 of PC)
+ *)
+(*
+val nop_some_equiv_nop_none: st:arm_state -> Lemma
+  (requires (st.ok = true))
+  (ensures  (forall c. eval_cond_ins NOP st == eval_cond_ins (NOPc c) st))
+let nop_some_equiv_nop_none st = ()
+
+val nop_no_effect_flags: st:arm_state -> Lemma
+  (requires (st.ok = true))
+  (ensures  (forall c. let st' = eval_cond_ins (NOPc c) st in
+             st'.flags == st.flags))
+let nop_no_effect_flags st = ()
+
+val nop_only_effect_pc: st:arm_state -> Lemma
+  (requires (st.ok = true))
+  (ensures  (forall c . let st1 = eval_cond_ins (NOPc c) st in
+             update_pc1 st == st1))
+let nop_only_effect_pc st = ()*)
+
+
+val nop_equiv_nopc: st0:arm_state -> Lemma
+  (requires (st0.ok = true))
+  (ensures  (forall c. eval_cond_ins NOP st0 == eval_cond_ins (NOPc c) st0))
+let nop_equiv_nopc st0 = ()
+
+val nopc_skip: st0:arm_state -> Lemma
+  (requires (st0.ok = true))
+  (ensures  (forall c . let st1 = eval_cond_ins (NOPc c) st0 in
+             update_pc1 st0 == st1))
+let nopc_skip st0 = ()
+
+val nopc_flags: st0:arm_state -> Lemma
+  (requires (st0.ok = true))
+  (ensures  (forall c. let st1 = eval_cond_ins (NOPc c) st0 in
+             st0.flags == st1.flags))
+let nopc_flags st0 = ()
+
+val nopc_memory_safe: st0:arm_state -> Lemma
+  (requires (st0.ok = true))
+  (ensures  (forall c. let st1 = eval_cond_ins (NOPc c) st0 in
+             st0.ok == st1.ok))
+let nopc_memory_safe st0 = () 
+
+(* property1:
+  If the condition test of a conditional instruction fails, the instruction:
+	\begin{itemize}
+		\item Does not execute.
+		\item Does not write any value to its destination register.
+		\item Does not affect any of the flags.
+		\item Does not generate any exception.
+	\end{itemize}
+
+ *)
+
+val getCondition: i:ins -> st:arm_state -> bool
+let getCondition i st = 
+  match i with
+  | ADCc c _ _ _  | ADCsc c _ _ _ | ADDc c _ _ _ | ADDsc c _ _ _ 
+  | ANDc c _ _ _  | ANDsc c _ _ _ | ASRc c _ _ _ | ASRsc c _ _ _
+  | BXc  c _      | CMPc  c _ _   | CMNc c _ _
+  | EORc c _ _ _  | EORsc c _ _ _ | LDRc c _ _ _  
+  | LSLc c _ _ _  | LSLsc c _ _ _ | LSRc c _ _ _ | LSRsc c _ _ _ 
+  | MOVc c _ _    | MOVsc c _ _   | MULc c _ _ _ | MULsc c _ _ _
+  | NEGc c _ _    | NOPc  c       | ORNc c _ _ _ | ORNsc c _ _ _
+  | ORRc c _ _ _  | ORRsc c _ _ _ | RORc c _ _ _ | RORsc c _ _ _ 
+  | STRc c _ _ _  | SUBc  c _ _ _ | SUBsc c _ _ _ -> eval_flags c st
+  
+  | ADC _ _ _  | ADCs _ _ _ | ADD _ _ _ | ADDs _ _ _ 
+  | AND _ _ _  | ANDs _ _ _ | ASR _ _ _ | ASRs _ _ _
+  | BX  _      | CMP  _ _   | CMN _ _
+  | EOR _ _ _  | EORs _ _ _ | LDR _ _ _  
+  | LSL _ _ _  | LSLs _ _ _ | LSR _ _ _ | LSRs _ _ _ 
+  | MOV _ _    | MOVs _ _   | MUL _ _ _ | MULs _ _ _
+  | NEG _ _    | NOP        | ORN _ _ _ | ORNs _ _ _
+  | ORR _ _ _  | ORRs _ _ _ | ROR _ _ _ | RORs _ _ _ 
+  | STR _ _ _  | SUB _ _ _  | SUBs _ _ _ -> true
+
+
+#set-options "--z3rlimit 100"
+val condition_fails_equiv_nop: i:ins -> st:arm_state -> Lemma
+  (requires (st.ok = true /\ 
+            (valid_ins i st = true) /\
+            (getCondition i st = false)))
+  (ensures  (let st1 = eval_cond_ins i st in
+             let st2 = eval_cond_ins NOP st in
+             st1.ok = true /\
+             update_pc1 st == st1 /\
+             st1 == st2))
+
+let condition_fails_equiv_nop i st = ()
+
+(* property2: The determinacy property explains (it is trival!!!)
+   that the execution of the machine is deterministic with the given sequence of external interrupts.
+ *)
+
+val determinacy_ins: i:ins -> st:arm_state -> Lemma
+  (requires True)
+  (ensures (let st1 = eval_cond_ins i st in
+            let st2 = eval_cond_ins i st in
+              st1 == st2))
+let determinacy_ins i st = ()
+
+
+val determinacy_code: c:code -> fuel:nat -> st:arm_state -> Lemma
+  (requires True)
+  (ensures (let st1 = eval_code c fuel st in
+            let st2 = eval_code c fuel st in
+              st1 == st2))
+let determinacy_code c f st = ()
+
+(* property3: The uniqueness property charaterizes 
+    tranformations between different modes only depend on the jump instruction (i.e. \texttt{BX} in the paper).
+
+ARM recommends you use the BX instruction to jump to an address or to return from a function, rather than writing to the PC directly. So, for the sake of safety reason, we limits `MOV PC r0` is illegal!!!
+ *)
+
+val ins_x_in_code: x:ins -> fuel:nat -> st:arm_state -> c:code -> Tot bool (decreases %[fuel; size_code c fuel])
+
+let rec ins_x_in_code x f st c = 
+  match c with
+  | Ins i -> i = x
+  | Block block -> 
+    (match block with
+    | [] -> false
+    | hd :: tl -> ins_x_in_code x f st hd || ins_x_in_code x f st (Block tl))
+  | IfElse cond ifTrue ifFalse ->
+    if eval_ocmp cond st then
+      ins_x_in_code x f st ifTrue
+    else ins_x_in_code x f st ifFalse
+  | While c b -> 
+    if eval_ocmp c st then
+     if f = 0 then false else ins_x_in_code x (f - 1) st b
+    else false
+
+val bx_bit_0_is_1_eq_Thumb16: cond:condition -> r:reg -> st:arm_state -> Lemma
+  (requires (st.ok = true && st.mem_mode = ARM && 
+             (bit_n (Int32.v (eval_reg r st)) 31) &&  eval_flags cond st
+             ))
+  (ensures  (let st1 = eval_cond_ins (BXc cond r) st in
+             st1.mem_mode == Thumb16))
+
+let bx_bit_0_is_1_eq_Thumb16 cond r st = ()
+
+(*we need to increase the fuel/ifuel to guarantee z3's computation! more deep! Because current semantics are so complex, maybe monad effect can reduce this problem!!! *)
+
+#set-options "--z3rlimit 100"
+
+val branch_property_arm: i:ins ->st0:arm_state -> Lemma
+  (requires (let st1 = eval_cond_ins i st0 in 
+              st0.ok == true /\
+              valid_ins i st0 == true /\
+              st0.mem_mode == ARM /\
+              st1.mem_mode =!= ARM))
+  (ensures  (match i with
+             | BX _ | BXc _ _ -> True
+             | _ -> False))
+
+let branch_property_arm i st0 = ()
+ (* match i with
+  | BX _ | BXc _ _ -> ()
+  | _ -> ()*)
+
+val branch_property: i:ins ->st0:arm_state -> Lemma
+  (requires (let st1 = eval_cond_ins i st0 in 
+              st0.ok == true /\
+              valid_ins i st0 == true /\
+              st0.mem_mode =!= st1.mem_mode))
+  (ensures  (match i with
+             | BX _ | BXc _ _ -> True
+             | _ -> False))
+
+let branch_property i st0 = ()
+
+val mode_tranformation_bx_ins: i:ins -> st:arm_state -> Lemma
+  (requires (valid_ins i st && st.ok = true && st.mem_mode = ARM))
+  (ensures  (let st1 = eval_cond_ins i st in
+            (match i with
+            | BX r -> 
+              let b1 = (bit_n (Int32.v (eval_reg r st)) 31) in
+              b1 ==> (st1.mem_mode =!= st.mem_mode)
+            | BXc cond r -> 
+              let b1 = (bit_n (Int32.v (eval_reg r st)) 31) in
+              let c1 = eval_flags cond st
+              in
+              b1 && c1 ==> (st1.mem_mode =!= st.mem_mode)
+            | _ -> (st1.mem_mode == st.mem_mode))
+              ))
+
+let mode_tranformation_bx_ins i st = ()
+
+(*
+val mode_tranformation_bx_ins1: i:ins -> st:arm_state -> Lemma
+  (requires (valid_ins i st) && st.ok = true)
+  (ensures  (let st1 = eval_cond_ins i st in
+             st1.mem_mode =!= st.mem_mode ==> (exists cond r. (i == BXc cond r) /\ (i == BX r))))
+
+#push-options "--ifuel 50 --fuel 50 --z3rlimit 320"
+let mode_tranformation_bx_ins1 i st = ()
+#pop-options
+
+val mode_tranformation_bx_ins2: i:ins -> st:arm_state -> Lemma
+  (requires (valid_ins i st) && st.ok = true && st.mem_mode = ARM)
+  (ensures  (let st1 = eval_cond_ins i st in
+             st1.mem_mode =!= st.mem_mode ==> (exists cond r. i == BXc cond r \/ i == BX r)))
+
+#push-options "--ifuel 50 --fuel 50 --z3rlimit 320"
+let mode_tranformation_bx_ins2 i st = ()
+#pop-options*)
+
+(*property4:
+  A processor in one instruction set state cannot execute instructions from another instruction set. For example, a processor in ARM state cannot execute Thumb instructions, and a processor in Thumb state cannot execute ARM instructions. You must ensure that the processor never receives instructions of the wrong instruction set for the current state.
+  forall i st. st.ok = true /\ valid_ins i st => 
+     if i = ORN then 
+       st.mem_mode <> Thumb32 <=> (eval_ins i st).ok = false
+     else 
+       true
+*)
+
+val instruction_in_mode_intro: i:ins -> st:arm_state -> Lemma
+  (requires (st.ok=true /\ valid_ins i st))
+  (ensures  (let st1 = eval_cond_ins i st in 
+            match i with
+            | ORNsc _ _ _ _ -> st.mem_mode == Thumb16 \/ st.mem_mode == ARM <==> st1.ok == false
+            | _ -> true))
+
+let instruction_in_mode_intro i st = ()
+
+
+val isolation_property: i:ins -> st:arm_state -> Lemma
+(requires (st.ok=true /\ valid_ins i st))
+  (ensures  (let st1 = eval_cond_ins i st in 
+            match i with
+            | ORN _ _ _ |ORNc _ _ _ _ |ORNs _ _ _ | ORNsc _ _ _ _  -> st.mem_mode == Thumb32 <==> st1.ok == true
+            | _ -> st1.ok == true))
+
+let isolation_property i st = ()
+
+
+(*
+  property5: pre: st.mem_mode = ARM, post: st1.ok = false <===> reason1 \/ reason2 \/ reason3\/...
+ *)
+
+
+val instruction_fail_reason1: i:ins -> st:arm_state -> Lemma
+  (requires (st.ok = true))
+  (ensures  (let st1 = eval_cond_ins i st in
+              valid_ins i st = false ==> st1.ok = false
+              ))
+
+let instruction_fail_reason1 i st = ()
+
+val instruction_fail_reason2: i:ins -> st:arm_state -> Lemma
+  (requires (st.ok = true))
+  (ensures  (let st1 = eval_cond_ins i st in
+              valid_ins i st = true /\ (match i with
+              | ORNsc _ _ _ _ -> st.mem_mode == Thumb16 \/ st.mem_mode == ARM 
+              | _ -> false)
+              ==> st1.ok = false
+              ))
+
+let instruction_fail_reason2 i st = ()
+
+val instruction_fail_all_reason: i:ins -> st:arm_state -> Lemma
+  (requires (st.ok = true))
+  (ensures  (let st1 = eval_cond_ins i st in
+              st1.ok = false <==> 
+              valid_ins i st = false \/
+              (valid_ins i st = true /\ (match i with
+              | ORNsc _ _ _ _ -> st.mem_mode == Thumb16 \/ st.mem_mode == ARM 
+              | _ -> false))
+              ))
+
+let instruction_fail_all_reason i st = ()
+
+(* let st1 = eval_list_ins cplist st in
+   st.ok = true => st1.ok = true <==> forall i st'. mem i cplist /\ st'.ok=true => let st2 = eval_cond_ins i st' in st2.ok = true
+ *)
+open FStar.List.Tot.Base
+
+val list_cond_ok: l:list ins -> st:arm_state -> Tot bool
+let rec list_cond_ok l st =
+  match l with
+  | [] -> true
+  | hd::tl -> if valid_ins hd st then
+    let st' = eval_ins hd st in
+      list_cond_ok tl st'
+    else false
+
+(*list_memory_safety*)
+val list_ok_is_all_ok: l:list ins -> st:arm_state -> Lemma
+  (requires (st.ok=true /\ (list_cond_ok l st)))
+  (ensures  (let st1 = eval_list_ins l st in
+             st1.ok = true))
+let rec list_ok_is_all_ok l st =
+  match l with
+  | [] -> ()
+  | hd :: tl -> let st' = eval_ins hd st in
+    list_ok_is_all_ok tl st'
+
+(*
+val mode_tranformation_bx_ins2: i:ins -> cond:option condition -> r:reg -> st:arm_state -> Lemma
+  (requires (valid_ins i st && st.ok = true && 
+             st.mem_mode = ARM && (bit_n (Int32.v (eval_reg r st)) 0) <> 0 && 
+              (match cond with
+               | Some c -> eval_flags c st
+               | None -> true)
+               ))
+  (ensures (let st1 = eval_cond_ins i st in
+            (st1.mem_mode =!= st.mem_mode) ==> (i == BX cond r)))
+
+let mode_tranformation_bx_ins2 i cond rm st = ()*)
+
+(*
+val mode_tranformation_bx_code: c:code -> fuel:nat -> st:arm_state -> Lemma
+  (requires (st.ok = true && st.mem_mode = ARM))
+  (ensures (forall f. let st1 = eval_code c f st in
+           st1.mem_mode =!= st.mem_mode ==> (exists cond r. ins_x_in_code (BX cond r) f st c))) (decreases %[fuel; size_code c fuel])
+
+let rec mode_tranformation_bx_code c f st =
+  match c with
+  | Ins i -> if valid_ins i st then mode_tranformation_bx_ins2 i st else ()
+  | Block block ->
+    (match block with
+     | [] -> ()
+     | hd :: tl -> mode_tranformation_bx_code hd f st; mode_tranformation_bx_code (Block tl) f st
+    )
+  | IfElse cond ifTrue ifFalse ->
+    if valid_ocmp cond then
+      if eval_ocmp cond st then
+        mode_tranformation_bx_code ifTrue f st
+      else mode_tranformation_bx_code ifFalse f st
+    else ()
+  | While cond body ->
+    if valid_ocmp cond then
+      if eval_ocmp cond st then
+        if f = 0 then () else mode_tranformation_bx_code c (f-1) st
+      else ()
+    else ()
+*)
+
+val load_after_store_aux: rd: reg -> rn:reg -> o: operand -> st0:arm_state -> ins*ins*arm_state*arm_state
+let load_after_store_aux rd rn o st0 = 
+ let i0 = STR rd rn o in
+ let i1 = LDR rd rn o in
+ let st1 = eval_cond_ins i0 st0 in
+ let st2 = eval_cond_ins i1 st1 in
+  (i0, i1, st1, st2)
+
+val load_after_store: rd: reg -> rn:reg -> o: operand -> st0:arm_state -> Lemma
+  (requires (let (i0, i1, st1, st2) = load_after_store_aux rd rn o st0 in
+              valid_ins i0 st0 == true /\
+              valid_ins i1 st1 == true /\
+              st0.ok == true))
+  (ensures  (let (i0, i1, st1, st2) = load_after_store_aux rd rn o st0 in
+              eval_reg rd st0 == eval_reg rd st1 /\
+              eval_reg rd st1 == eval_reg rd st2))
+let load_after_store rd rn o st0 = ()
