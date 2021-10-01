@@ -1,6 +1,11 @@
-# Verified functional programming of an IoT operating system's bootloader
+# verified-riotboot
 
-This repository contains the version of ARM/riotboot in F* presented in the MEMOCODE2021 submission #.
+A formally verified bootloader for RIOT OS (arm version)
+
+
+For more information, please referring to the paper "Verified functional programming of an IoT operating system's bootloader"
+
+This repository contains the version of ARM/riotboot in F* presented in the MEMOCODE2021 submission #29.
 
 # Organization
 
