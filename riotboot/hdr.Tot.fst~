@@ -1,5 +1,0 @@
-module Hdr.Tot
-
-open FStar.Integers
-open FStar.UInt
-open FStar.Int.Cast
